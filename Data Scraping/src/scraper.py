@@ -10,38 +10,13 @@ def fetch(url):
     try:
         scraper = cloudscraper.create_scraper()
         response = scraper.get(url, headers=headers)
-        print(f"Fetched {url} - Status Code: {response.status_code}")
+        # print(f"Fetched {url} - Status Code: {response.status_code}")
         response.raise_for_status()
         time.sleep(15)  # https://ck3.paradoxwikis.com/robots.txt -> Crawl-delay: 15
         return BeautifulSoup(response.text, 'html.parser')
     except Exception as e:
         print(f"Request failed: {e}")
         return None
-
-
-def parse_table_raw(soup):
-    if not soup:
-        return []
-    table = soup.find('table', class_='wikitable')
-    if not table:
-        print("Table not found!")
-        return []
-    
-    all_rows = []
-    for row in table.find_all('tr'):
-        columns = row.find_all(['th', 'td'])
-        row_data = []
-        for col in columns:
-            links = col.find_all('li')
-            if links:
-                cell_items = []
-                for link in links:
-                    cell_items.append(link.get_text(strip=True))
-                row_data.append(cell_items)
-            else:
-                row_data.append(col.get_text(strip=True))
-        all_rows.append(row_data) 
-    return all_rows
 
 def parse_headers(table):
     header_rows = [row for row in table.find_all('tr') if row.find('th')]
@@ -63,9 +38,44 @@ def parse_headers(table):
                     if r_idx + r_offset < len(header_rows):
                         grid[r_idx + r_offset][c_idx + c_offset] = text
             c_idx += colspan
-    return grid
+    headers_clean = []
+    for c in range(tot_col):
+        parent = grid[0][c].lower()
+        if (len(grid)>1):
+            child = grid[1][c].lower()
+            if(parent!= child):
+                headers_clean.append(f"{parent}_{child}")
+            else:
+                headers_clean.append(f"{parent}")
+        else:
+            headers_clean.append(f"{parent}")
+    return headers_clean
 
-                    
+def parse_table(table):
+    parsed_table = []
+    col_headers = parse_headers(table)
+    for tr in table.find_all('tr'):
+        columns = tr.find_all('td')
+        row_data = []
+        for col in columns:
+            items = (list(col.stripped_strings))
+            if not items:
+                row_data.append("")
+            elif len(items) == 1:
+                row_data.append(items[0])
+            else:
+                row_data.append(items)
+
+        if len(row_data) == len(col_headers):
+            row_dict = dict(zip(col_headers, row_data))
+            parsed_table.append(row_dict)
+        
+    return parsed_table
+
+def save_to_json(data, path_output):
+    with open(path_output, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
 if __name__ == "__main__":
     wesbite_to_scrape = [
         {"url": "https://ck3.paradoxwikis.com/List_of_hegemonies", "name": "hegemonies"},
@@ -77,7 +87,7 @@ if __name__ == "__main__":
     for web in wesbite_to_scrape:
         soup = fetch(web['url'])
         if soup:
-            print("Sukses! Otw Print Data Per Row")
             table = soup.find('table', class_='wikitable')
-            grid = parse_headers(table)
-            pprint(grid)
+            result_data = parse_table(table)
+            path_output = f"Data Scraping/data/{web['name']}.json"
+            save_to_json(result_data, path_output)

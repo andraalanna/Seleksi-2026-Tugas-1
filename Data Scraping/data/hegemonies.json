@@ -16,13 +16,16 @@
         "decision": "Already present",
         "notes": [
             "Always uses the owner's dynasty name regardless of game settings",
-            "If theAll Under Heaven DLC is installed the title unlocks additional mechanics:Can only be destroyed and recreated via the Dynasty Cycle situationUnlocks a large number of great projectsUses the Grand Secretariat diarchyTributary system is expandedUnlocks two additional laws if government remainsCelestialUses a different council if government remainsCelestial",
+            "If the",
+            "All Under Heaven DLC is installed the title unlocks additional mechanics:",
             "Can only be destroyed and recreated via the Dynasty Cycle situation",
             "Unlocks a large number of great projects",
             "Uses the Grand Secretariat diarchy",
             "Tributary system is expanded",
-            "Unlocks two additional laws if government remainsCelestial",
-            "Uses a different council if government remainsCelestial"
+            "Unlocks two additional laws if government remains",
+            "Celestial",
+            "Uses a different council if government remains",
+            "Celestial"
         ]
     },
     {
@@ -58,7 +61,8 @@
         ],
         "decision": "Restore the Roman Empire",
         "notes": [
-            "Owner has theAugustus trait",
+            "Owner has the",
+            "Augustus trait",
             "Unlocks the Restore Imperial Province casus belli",
             "Reconquering historical provinces of the Roman Empire provides additional bonuses"
         ]
@@ -71,7 +75,10 @@
         ],
         "capital": "Byzantion",
         "decision": "Cleave the Empire",
-        "notes": "Owner has theAugustus trait"
+        "notes": [
+            "Owner has the",
+            "Augustus trait"
+        ]
     },
     {
         "hegemony": "Western Roman Empire",
@@ -81,7 +88,10 @@
         ],
         "capital": "Roma",
         "decision": "Cleave the Empire",
-        "notes": "Owner has theAugustus trait"
+        "notes": [
+            "Owner has the",
+            "Augustus trait"
+        ]
     },
     {
         "hegemony": "Khaganate",
