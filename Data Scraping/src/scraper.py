@@ -13,6 +13,7 @@ def fetch(url):
         # print(f"Fetched {url} - Status Code: {response.status_code}")
         response.raise_for_status()
         time.sleep(15)  # https://ck3.paradoxwikis.com/robots.txt -> Crawl-delay: 15
+        response.encoding = 'utf-8'
         return BeautifulSoup(response.text, 'html.parser')
     except Exception as e:
         print(f"Request failed: {e}")
@@ -83,11 +84,11 @@ if __name__ == "__main__":
         {"url": "https://ck3.paradoxwikis.com/List_of_counties", "name": "counties"},
         {"url": "https://ck3.paradoxwikis.com/List_of_kingdoms", "name": "kingdoms"},
         {"url": "https://ck3.paradoxwikis.com/List_of_empires", "name": "empires"},
-    ]
+        ]
     for web in wesbite_to_scrape:
         soup = fetch(web['url'])
         if soup:
             table = soup.find('table', class_='wikitable')
             result_data = parse_table(table)
-            path_output = f"Data Scraping/data/{web['name']}.json"
+            path_output = f"Data Scraping/data/{web['name']}_raw.json"
             save_to_json(result_data, path_output)

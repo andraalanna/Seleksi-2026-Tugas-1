@@ -14,19 +14,7 @@
             "Hangzhou in 1178"
         ],
         "decision": "Already present",
-        "notes": [
-            "Always uses the owner's dynasty name regardless of game settings",
-            "If the",
-            "All Under Heaven DLC is installed the title unlocks additional mechanics:",
-            "Can only be destroyed and recreated via the Dynasty Cycle situation",
-            "Unlocks a large number of great projects",
-            "Uses the Grand Secretariat diarchy",
-            "Tributary system is expanded",
-            "Unlocks two additional laws if government remains",
-            "Celestial",
-            "Uses a different council if government remains",
-            "Celestial"
-        ]
+        "notes": "Always uses the owner's dynasty name regardless of game settings If the All Under Heaven DLC is installed the title unlocks additional mechanics: Can only be destroyed and recreated via the Dynasty Cycle situation Unlocks a large number of great projects Uses the Grand Secretariat diarchy Tributary system is expanded Unlocks two additional laws if government remains Celestial Uses a different council if government remains Celestial"
     },
     {
         "hegemony": "India",
@@ -60,12 +48,7 @@
             "Byzantion if done by Byzantine Empire"
         ],
         "decision": "Restore the Roman Empire",
-        "notes": [
-            "Owner has the",
-            "Augustus trait",
-            "Unlocks the Restore Imperial Province casus belli",
-            "Reconquering historical provinces of the Roman Empire provides additional bonuses"
-        ]
+        "notes": "Owner has the Augustus trait Unlocks the Restore Imperial Province casus belli Reconquering historical provinces of the Roman Empire provides additional bonuses"
     },
     {
         "hegemony": "Eastern Roman Empire",
@@ -75,10 +58,7 @@
         ],
         "capital": "Byzantion",
         "decision": "Cleave the Empire",
-        "notes": [
-            "Owner has the",
-            "Augustus trait"
-        ]
+        "notes": "Owner has the Augustus trait"
     },
     {
         "hegemony": "Western Roman Empire",
@@ -88,10 +68,7 @@
         ],
         "capital": "Roma",
         "decision": "Cleave the Empire",
-        "notes": [
-            "Owner has the",
-            "Augustus trait"
-        ]
+        "notes": "Owner has the Augustus trait"
     },
     {
         "hegemony": "Khaganate",
