@@ -1,0 +1,118 @@
+[
+    {
+        "hegemony": "China",
+        "empires": [
+            "Jingyang",
+            "Liangyi",
+            "Lingnan",
+            "Yongliang",
+            "Zhongyuan"
+        ],
+        "capital": [
+            "Jingzhao in 867",
+            "Bianzhou in 1066",
+            "Hangzhou in 1178"
+        ],
+        "decision": "Already present",
+        "notes": [
+            "Always uses the owner's dynasty name regardless of game settings",
+            "If the",
+            "All Under Heaven DLC is installed the title unlocks additional mechanics:",
+            "Can only be destroyed and recreated via the Dynasty Cycle situation",
+            "Unlocks a large number of great projects",
+            "Uses the Grand Secretariat diarchy",
+            "Tributary system is expanded",
+            "Unlocks two additional laws if government remains",
+            "Celestial",
+            "Uses a different council if government remains",
+            "Celestial"
+        ]
+    },
+    {
+        "hegemony": "India",
+        "empires": [
+            "Deccan Empire",
+            "Pracya",
+            "Rajasthan"
+        ],
+        "capital": "",
+        "decision": "Become Chakravarti",
+        "notes": ""
+    },
+    {
+        "hegemony": "Dar al-Islam",
+        "empires": [
+            "Arabian Empire",
+            "Any empire held when the decision was taken"
+        ],
+        "capital": "Mecca",
+        "decision": "Establish the Dar al-Islam",
+        "notes": "Becomes the head of faith title for all Muslim faiths that consider the faith of the ruler taking the decision Righteous or Astray"
+    },
+    {
+        "hegemony": "Roman Empire",
+        "empires": [
+            "Italia",
+            "Any empire held when the decision was taken"
+        ],
+        "capital": [
+            "Roma if done by Italia or Holy Roman Empire",
+            "Byzantion if done by Byzantine Empire"
+        ],
+        "decision": "Restore the Roman Empire",
+        "notes": [
+            "Owner has the",
+            "Augustus trait",
+            "Unlocks the Restore Imperial Province casus belli",
+            "Reconquering historical provinces of the Roman Empire provides additional bonuses"
+        ]
+    },
+    {
+        "hegemony": "Eastern Roman Empire",
+        "empires": [
+            "Byzantine Empire",
+            "Any historical empire held when the decision was taken"
+        ],
+        "capital": "Byzantion",
+        "decision": "Cleave the Empire",
+        "notes": [
+            "Owner has the",
+            "Augustus trait"
+        ]
+    },
+    {
+        "hegemony": "Western Roman Empire",
+        "empires": [
+            "Italia",
+            "Any historical empire held when the decision was taken"
+        ],
+        "capital": "Roma",
+        "decision": "Cleave the Empire",
+        "notes": [
+            "Owner has the",
+            "Augustus trait"
+        ]
+    },
+    {
+        "hegemony": "Khaganate",
+        "empires": [
+            "Amur",
+            "Andong",
+            "Khazaria",
+            "Mongolia",
+            "Siberia",
+            "Tartaria",
+            "Turan",
+            "Volga-Ural",
+            "Kirghiz Khanate in 867",
+            "Kara Khitai in 1178",
+            "Carpathia if steppes were expanded into Eastern Balkans",
+            "Russia if steppes were expanded into Northern or Southern Russia",
+            "Byzantine Empire if steppes were expanded into Caucasus",
+            "Persia if steppes were expanded into Persia"
+        ],
+        "capital": "",
+        "decision": "Reform the Great Khaganate",
+        "notes": "Additional empires are not added if the Expand the Steppes decision is taken after the hegemony has been created"
+    }
+]
