@@ -311,7 +311,7 @@ Perancangan Data Warehouse pada proyek ini mengikuti **Kimball's Four-Step Dimen
 | 1 | Ekonomi & Pembangunan | County mana yang paling makmur (development tertinggi) di tiap start date, cocok dijadikan ibu kota? |
 | 2 | Ekspansi Wilayah | Empire mana yang menaungi wilayah (sub-county/sub-duchy) terbanyak, cocok untuk gaya main ekspansif? |
 | 3 | Stabilitas Budaya & Agama | Kingdom mana yang homogen (stabil, cocok pemula) vs beragam (rawan konflik)? |
-| 4 | Pertumbuhan Historis | Title mana yang development-nya naik paling drastis dari 867 → 1178? |
+| 4 | Pertumbuhan Historis | Title mana yang development-nya naik paling drastis dari 867 ke 1178? |
 
 ##### Star Schema
 
@@ -339,6 +339,153 @@ Poin desain penting:
 
 - **Query 4 (Pertumbuhan Historis):**  
   ![Query 4 Pertumbuhan](Data%20Warehouse/screenshot/query4_growth.png)
+
+---
+
+### Automated Scheduling
+
+#### Metodologi & Arsitektur Penjadwalan
+Penjadwalan otomatis diimplementasikan menggunakan pendekatan **Incremental Change Detection (Conditional Scraping)** dengan memanfaatkan fitur MediaWiki Revision History (`action=history`):
+
+1. **Change Detection (Deteksi Perubahan):** Sebelum mengunduh dan memproses ulang data wiki yang berukuran besar, script `scheduler.py` memeriksa timestamp revisi terakhir (`mw-changeslist-date`) dari halaman history 5 tier wiki (`List_of_counties`, `List_of_duchies`, `List_of_kingdoms`, `List_of_empires`, `List_of_hegemonies`).
+2. **Logika Perbandingan:** Script membandingkan timestamp revisi terbaru wiki dengan timestamp `last_update` pada tabel `log` PostgreSQL:
+   - **Jika Wiki > DB (`UPDATED`):** Terjadi pembaruan pada wiki. Sistem akan menjalankan scraper (`scrape_one`), cleaner (`clean_one`), serta meng-import data baru ke database (`import_all_data`), lalu mencatat baris log baru ber-status `UPDATED`.
+   - **Jika Wiki == DB (`NOT CHANGED`):** Tidak ada pembaruan pada wiki. Sistem melewati proses scraping penuh untuk menghemat bandwidth dan beban server, lalu mencatat baris log baru ber-status `NOT CHANGED`.
+3. **Penyimpanan Log Multi-Batch:** Setiap eksekusi mencatat audit trail di tabel PostgreSQL `log` (dan `Automated Scheduling/logs/scheduler.log`) untuk membuktikan keaktifan penjadwal antar siklus eksekusi.
+4. **Karakteristik Data Sumber:** Data pada CK3 Wiki bersifat relatif statis dan jarang diperbarui setiap hari. Oleh karena itu, mekanisme *Conditional Scraping* via `action=history` ini sangat krusial untuk memastikan server tidak melakukan scraping redundan secara berlebihan, sementara database tetap ter-update secara otomatis jika terjadi pembaruan di wiki.
+
+#### Bukti Eksekusi Multi-Batch & Tabel Log PostgreSQL
+Tabel `log` pada PostgreSQL (`ck3_db`) mencatat riwayat eksekusi multi-batch dengan timestamp yang berbeda:
+
+- **Batch 1 Run (`UPDATED`):** Mendeteksi perbedaan tanggal dari baseline awal (`2024-04-21`), mengeksekusi pipeline scraping & cleaning penuh, lalu meng-upsert data ke tabel database utama (`Title`, `Title_Snapshot`, dll) dan mencatat status `UPDATED`.
+- **Batch 2 Run (`NOT CHANGED`):** Mendeteksi tanggal wiki sama dengan database (`2026-07-11`), secara otomatis melewati proses scraping penuh, dan mencatat status `NOT CHANGED`.
+
+#### Registrasi OS Scheduler
+Script `Automated Scheduling/src/scheduler.py` telah berhasil didaftarkan ke **Windows Task Scheduler** dengan nama task `CK3 Wiki Scraper Scheduler` untuk eksekusi otomatis secara berkala.
+
+---
+
+### Query Optimization 
+
+#### Tujuan & Ringkasan Eksperimen
+Bagian ini bertujuan untuk menganalisis dan mengoptimalkan performa eksekusi query pada database PostgreSQL (`ck3_db`) dengan menggunakan perintah `EXPLAIN ANALYZE`. Pengujian dilakukan terhadap 3 jenis skenario query dengan beban kerja yang beragam (join hierarki multi-level, pencarian substring teks bebas, dan agregasi data agregat).
+
+#### Ringkasan Perbandingan Performa
+
+| Query | Skenario | Waktu Sebelum (Before) | Metode Scan Sebelum | Waktu Sesudah (After) | Metode Scan Sesudah | Peningkatan (%) |
+|---|---|---|---|---|---|---|
+| **Query 1** | Multi-Level Join (County ke Empire) | 6.022 ms | Seq Scan pada `title_snapshot` | 0.657 ms | Bitmap Index Scan / Index Scan | ~89.1% |
+| **Query 2** | Text Search Substring (`ILIKE '%bryn%'`) | 3.467 ms | Seq Scan pada `alt_name` | 3.467 ms (Default) / Index Valid (`enable_seqscan=off`) | Seq Scan (Planner) / Bitmap Index Scan (Forced) | 0% (Auto) / Validasi Teknis |
+| **Query 3** | Agregasi Budaya & Agama per Kingdom | 29.449 ms | Seq Scan pada `title_snapshot` (2x) | 15.001 ms | Bitmap Index Scan | ~49.1% |
+
+---
+
+#### Analisis Detail per Query
+
+##### 1. Query 1 — Hierarchical Multi-Level Join
+Query ini melakukan traversal hierarki wilayah dari tingkat County menuju Empire (`e_britannia`) pada tahun `1066` dengan melewati 2 hop relasi parent (`county` -> `duchy` -> `kingdom`).
+
+```sql
+-- Indeks yang Dibuat
+CREATE INDEX idx_snapshot_parent_year ON title_snapshot (parent_title_id, year);
+
+-- Perintah Query
+EXPLAIN ANALYZE
+SELECT t_county.name AS county_name
+FROM title_snapshot ts_county
+JOIN title t_county ON t_county.title_id = ts_county.title_id AND t_county.tier = 'county'
+JOIN title_snapshot ts_duchy ON ts_duchy.title_id = ts_county.parent_title_id AND ts_duchy.year = ts_county.year
+JOIN title_snapshot ts_kingdom ON ts_kingdom.title_id = ts_duchy.parent_title_id AND ts_kingdom.year = ts_county.year
+WHERE ts_kingdom.parent_title_id = 'e_britannia' AND ts_county.year = 1066;
+```
+
+* **Sebelum Indeks:** PostgreSQL melakukan pembacaan berurutan (*Sequential Scan*) pada seluruh baris tabel `title_snapshot` untuk setiap tahapan join, memakan waktu eksekusi sebesar **6.022 ms**.
+  ![Query 1 Before](Data%20Storing/screenshot/query_optimization/query1_before.png)
+
+* **Sesudah Indeks:** Setelah indeks komposit `idx_snapshot_parent_year` diterapkan pada kolom `(parent_title_id, year)`, query planner beralih menggunakan **Bitmap Index Scan** dan **Index Scan**. Waktu eksekusi turun drastis menjadi **0.657 ms** (peningkatan kecepatan sebesar **89.1%**).
+  ![Query 1 After](Data%20Storing/screenshot/query_optimization/query1_after.png)
+
+---
+
+##### 2. Query 2 — Text Search pada Nama Alternatif
+Query ini melakukan pencarian potongan nama historis alternatif (`alt_name`) menggunakan pencarian substring bebas dengan wildcard ganda (`ILIKE '%bryn%'`).
+
+```sql
+-- Ekstensi PostgreSQL untuk Trigram
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Indeks GIN Trigram
+CREATE INDEX idx_altname_trgm ON alt_name USING gin (alt_name gin_trgm_ops);
+
+-- Query Execution Plan (Default Planner)
+EXPLAIN ANALYZE
+SELECT *
+FROM alt_name
+WHERE alt_name ILIKE '%bryn%';
+
+-- Validasi Teknis Indeks (Paksa Index Scan)
+SET enable_seqscan = off;
+EXPLAIN ANALYZE
+SELECT *
+FROM alt_name
+WHERE alt_name ILIKE '%bryn%';
+SET enable_seqscan = on;
+```
+
+* **Sebelum Indeks:** PostgreSQL melakukan *Sequential Scan* pada tabel `alt_name` dengan waktu eksekusi **3.467 ms**.
+  ![Query 2 Before](Data%20Storing/screenshot/query_optimization/query2_before.png)
+
+* **Sesudah Indeks (Default Optimizer):** Meskipun indeks GIN Trigram `idx_altname_trgm` telah dibuat dan valid secara teknis, *Cost-Based Optimizer* PostgreSQL tetap memilih *Sequential Scan* dengan waktu eksekusi yang sama (**3.467 ms**). Hal ini terjadi karena ukuran tabel `alt_name` relatif kecil (hanya 761 baris), sehingga estimasi biaya pembacaan langsung di memori lebih murah dibanding melakukan overhead pencarian pohon indeks dan re-check baris.
+  ![Query 2 Default Planner](Data%20Storing/screenshot/query_optimization/query2_after_default.png)
+
+* **Validasi Teknis Indeks:** Untuk membuktikan bahwa indeks GIN Trigram tersebut valid dan dapat berfungsi, perintah `SET enable_seqscan = off;` dijalankan secara sementara. Hasilnya menunjukkan bahwa query planner berhasil beralih menggunakan **Bitmap Index Scan**, membuktikan bahwa struktur indeks telah dibuat dengan benar secara teknis.
+  ![Query 2 Forced Index](Data%20Storing/screenshot/query_optimization/query2_after_forced.png)
+
+---
+
+##### 3. Query 3 — Agregasi Budaya dan Agama per Kingdom
+Query ini menghitung jumlah variasi budaya (`culture_id`) dan agama (`religion_id`) di tingkat county untuk setiap kingdom pada tahun `1178` menggunakan klausa `GROUP BY`, `COUNT(DISTINCT)`, dan `ORDER BY`.
+
+```sql
+-- Indeks yang Dibuat
+CREATE INDEX idx_snapshot_year ON title_snapshot (year);
+
+-- Perintah Query
+EXPLAIN ANALYZE
+SELECT 
+    ts_county.year,
+    t_kingdom.name AS kingdom_name,
+    COUNT(DISTINCT ts_county.culture_id) AS num_of_dif_culture,
+    COUNT(DISTINCT ts_county.religion_id) AS num_of_dif_religion,
+    COUNT(*) AS num_of_counties
+FROM title_snapshot ts_county
+JOIN title t_county ON t_county.title_id = ts_county.title_id AND t_county.tier = 'county'
+JOIN title_snapshot ts_duchy ON ts_duchy.title_id = ts_county.parent_title_id AND ts_duchy.year = ts_county.year
+JOIN title t_kingdom ON t_kingdom.title_id = ts_duchy.parent_title_id
+WHERE ts_county.year = 1178
+GROUP BY ts_county.year, t_kingdom.name
+ORDER BY num_of_dif_culture DESC, num_of_dif_religion DESC
+LIMIT 10;
+```
+
+* **Sebelum Indeks:** PostgreSQL melakukan dua kali *Sequential Scan* pada tabel `title_snapshot` (untuk alias `ts_county` dan `ts_duchy`), di mana masing-masing scan membaca 13.941 baris dan membuang 9.294 baris yang tidak sesuai filter tahun. Waktu eksekusi sebesar **29.449 ms**.
+  ![Query 3 Before](Data%20Storing/screenshot/query_optimization/query3_before.png)
+
+* **Sesudah Indeks:** Setelah indeks `idx_snapshot_year` ditambahkan pada kolom `year`, pembacaan berurut beralih menjadi **Bitmap Index Scan**. Waktu eksekusi berhasil dipangkas menjadi **15.001 ms** (peningkatan kecepatan sebesar **49.1%**).
+  ![Query 3 After](Data%20Storing/screenshot/query_optimization/query3_after.png)
+
+---
+
+#### Insight Konseptual yang Dipelajari
+
+1. **Selektivitas Indeks Menentukan Tingkat Peningkatan Performa:**
+   Indeks memberikan peningkatan performa paling tinggi pada kondisi filter yang sangat selektif. Pada Query 1, filter `parent_title_id = 'e_britannia'` memangkas pencarian dari puluhan ribu baris menjadi hanya beberapa baris spesifik, sehingga menghasilkan improvement hingga 89.1%. Sebaliknya pada Query 3, filter `year = 1178` kurang selektif karena hanya menyaring sepertiga dari total data (~4.600 baris), sehingga improvement yang didapat lebih moderat (49.1%).
+
+2. **Cost-Based Optimizer vs Pembuatan Indeks:**
+   Adanya indeks pada database tidak menjamin indeks tersebut pasti digunakan oleh query planner. PostgreSQL menggunakan *Cost-Based Optimizer* yang memperhitungkan ukuran data di disk. Pada Query 2 (tabel kecil berisi 761 baris), planner secara bijak tetap memilih *Sequential Scan* karena biaya I/O pembacaan langsung lebih kecil dibanding pencarian indeks B-Tree/GIN.
+
+3. **Kesesuaian Tipe Indeks dengan Operasi Filter:**
+   Pencarian teks bebas dengan wildcard di awal dan akhir (`ILIKE '%keyword%'`) tidak dapat memanfaatkan indeks B-Tree standar. Diperlukan indeks ber-tipe GIN Trigram (`pg_trgm`) untuk mendukung pencarian pattern matching substring secara teknis pada PostgreSQL.
 
 ---
 

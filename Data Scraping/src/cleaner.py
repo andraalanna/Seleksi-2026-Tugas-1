@@ -89,6 +89,19 @@ def clean2(path_input, path_output):
     with open(path_output, 'w', encoding='utf-8') as f:
         json.dump(new_data, f, ensure_ascii=False, indent=4)
     
+# Di dalam Data Scraping/src/cleaner.py
+
+def clean_one(name):
+    path_input = f"Data Scraping/data/{name}_raw.json"
+    path_output = f"Data Scraping/data/{name}_cleaned.json"
+    
+    if name == 'hegemonies':
+        clean2(path_input, path_output)
+    else:
+        clean1(path_input, path_output)
+        
+    print(f"Cleaned data for {name} saved to {path_output}")
+
 if __name__ == "__main__":
     '''
     Counties, duchies, empires, Kingdoms

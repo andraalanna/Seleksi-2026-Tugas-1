@@ -116,7 +116,7 @@ def insert_characters(cur, n_chars=150):
 def insert_titles_and_subclasses(cur, empires, kingdoms, duchies, counties, hegemonies, name_to_id):
     for item in empires:
         cur.execute(
-            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING;",
+            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT (title_id) DO UPDATE SET name = EXCLUDED.name, tier = EXCLUDED.tier;",
             (item["id"], item["empire"], "empire")
         )
         cur.execute(
@@ -126,7 +126,7 @@ def insert_titles_and_subclasses(cur, empires, kingdoms, duchies, counties, hege
 
     for item in kingdoms:
         cur.execute(
-            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING;",
+            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT (title_id) DO UPDATE SET name = EXCLUDED.name, tier = EXCLUDED.tier;",
             (item["id"], item["kingdom"], "kingdom")
         )
         cur.execute(
@@ -136,7 +136,7 @@ def insert_titles_and_subclasses(cur, empires, kingdoms, duchies, counties, hege
 
     for item in duchies:
         cur.execute(
-            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING;",
+            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT (title_id) DO UPDATE SET name = EXCLUDED.name, tier = EXCLUDED.tier;",
             (item["id"], item["duchy"], "duchy")
         )
         cur.execute(
@@ -146,7 +146,7 @@ def insert_titles_and_subclasses(cur, empires, kingdoms, duchies, counties, hege
 
     for item in counties:
         cur.execute(
-            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING;",
+            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT (title_id) DO UPDATE SET name = EXCLUDED.name, tier = EXCLUDED.tier;",
             (item["id"], item["county"], "county")
         )
         cur.execute(
@@ -157,7 +157,7 @@ def insert_titles_and_subclasses(cur, empires, kingdoms, duchies, counties, hege
     for item in hegemonies:
         h_id = name_to_id[("hegemony", item["hegemony"].lower())]
         cur.execute(
-            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING;",
+            "INSERT INTO Title (title_id, name, tier) VALUES (%s, %s, %s) ON CONFLICT (title_id) DO UPDATE SET name = EXCLUDED.name, tier = EXCLUDED.tier;",
             (h_id, item["hegemony"], "hegemony")
         )
         cur.execute(

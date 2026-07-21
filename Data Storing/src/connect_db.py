@@ -20,3 +20,4 @@ def get_db_params(dbname_override=None):
 def get_connection(dbname_override=None):
     params = get_db_params(dbname_override)
     return psycopg2.connect(**params)
+

@@ -77,6 +77,21 @@ def save_to_json(data, path_output):
     with open(path_output, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
+# Di dalam Data Scraping/src/scraper.py
+
+def scrape_one(name):
+    url = f"https://ck3.paradoxwikis.com/List_of_{name}"
+    print(f"Scraping full page for {name}...")
+    soup = fetch(url)
+    if soup: 
+        table = soup.find('table', class_='wikitable')
+        result_data = parse_table(table)
+        path_output = f"Data Scraping/data/{name}_raw.json"
+        save_to_json(result_data, path_output)
+        print(f"Raw data for {name} saved to {path_output}")
+
+
+
 if __name__ == "__main__":
     wesbite_to_scrape = [
         {"url": "https://ck3.paradoxwikis.com/List_of_hegemonies", "name": "hegemonies"},
@@ -92,3 +107,4 @@ if __name__ == "__main__":
             result_data = parse_table(table)
             path_output = f"Data Scraping/data/{web['name']}_raw.json"
             save_to_json(result_data, path_output)
+
