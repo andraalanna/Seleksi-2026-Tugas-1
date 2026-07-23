@@ -10,9 +10,9 @@
 
 ### Deskripsi Proyek & Topik Data
 - **Topik:** Data Hierarki De Jure Title & Snapshot Historis Crusader Kings III.
-- **DBMS Pilihan:** MariaDB / MySQL.
+- **DBMS Pilihan:** PostgreSQL.
 - **Deskripsi:** Proyek ini bertujuan untuk men-scrape dan memodelkan data hierarki de jure wilayah di game Crusader Kings III (dari tingkat County -> Duchy -> Kingdom -> Empire -> Hegemony) lengkap dengan snapshot historis kepemilikan wilayah tersebut pada tiga tahun awal yang berbeda: 867, 1066, dan 1178.
-- **Alasan Pemilihan Topik:** Game Crusader Kings III memiliki sistem pemetaan wilayah de jure yang sangat dinamis dan dipengaruhi oleh tahun awal permainan (start date). Hal ini memberikan tantangan pemodelan basis data temporal yang sangat baik untuk meminimalkan redundansi data melalui teknik normalisasi database yang matang (hingga 3NF/BCNF).
+- **Alasan Pemilihan Topik:** Game Crusader Kings III memiliki sistem pemetaan wilayah de jure yang sangat dinamis dan berubah berdasarkan tahun awal permainan (start date). Hal ini memberikan tantangan pemodelan basis data temporal yang menarik untuk meminimalkan redundansi data melalui teknik normalisasi basis data yang matang (hingga 3NF/BCNF). PostgreSQL dipilih sebagai DBMS utama karena dukungannya terhadap fitur-fitur tingkat lanjut seperti pembuatan trigram index (GIN) untuk pencarian teks substring dinamis serta keandalan dalam menangani complex constraints & database triggers.
 
 ---
 
@@ -56,7 +56,7 @@ Menyimpan informasi tingkat county (tingkat wilayah de jure terkecil).
 * `alternative_names` (List of Objects): Nama alternatif wilayah berdasarkan budaya atau tahun tertentu.
   * `name` (String): Nama alternatif.
   * `year` (Integer atau null): Tahun nama tersebut aktif.
-  * `culture` (List of Strings atau null): Budaya penguasa yang memicu nama tersebut.
+  * `culture` (List of Strings atau null): Budaya yang menggunakan nama alternatif tersebut untuk wilayah county ini.
 * `id` (String): Kode ID unik gelar wilayah (contoh: `c_middlesex`).
 
 #### 2. Duchies (`duchies_cleaned.json`)
@@ -122,47 +122,30 @@ Perancangan basis data dilakukan melalui pemodelan *Entity-Relationship Diagram*
 
 Skema basis data relasional pada proyek ini didesain menggunakan skrip DDL [ck3_ddl_postgres.sql](Data%20Storing/src/ck3_ddl_postgres.sql) dengan menerapkan 5 pendekatan utama dalam memetakan Entity-Relationship Diagram (ERD) menjadi skema tabel relasional:
 
-#### 1. Spesialisasi & Generalisasi (ISA Hierarchy): *Class Table Inheritance (Table-per-Subtype)*
-- **Pola:** *Class Table Inheritance* (atau *Subclass Mapping Pattern*).
-- **Implementasi:**
-  - Tabel Basis (Supertype): `Title` (`title_id`, `name`, `tier`).
-  - Tabel Subtype Spesifik: `County`, `Duchy`, `Kingdom`, `Empire`, `Hegemony`.
-  - Primary Key pada setiap tabel subtype (`title_id`) sekaligus berfungsi sebagai Foreign Key ke `Title(title_id)` dengan *constraint* `ON DELETE CASCADE`.
-- **Rasionalitas Design:** Setiap tingkatan gelar dalam CK3 memiliki atribut umum (`title_id`, `name`, `tier`), namun hirarki tertentu memiliki atribut unik (seperti `baronies_count` pada County, `special_requirements` pada Kingdom/Empire, serta `decision` & `notes` pada Hegemony). Pendekatan ini mencegah kemunculan kolom bernilai `NULL` yang berlebihan (dibandingkan *Single Table Inheritance*) sekaligus menjaga integritas data spesifik per tier.
+#### 1. Hierarki Title (ISA)
+Karena tiap tingkatan title (county, duchy, kingdom, empire, hegemony) punya atribut umum yang sama tapi juga ada atribut yang cuma dimiliki tier tertentu, aku pakai pendekatan class table inheritance — jadi ada satu tabel induk Title (nyimpen title_id, name, tier), terus masing-masing tier punya tabel sendiri (County, Duchy, Kingdom, Empire, Hegemony) yang title_id-nya sekaligus jadi PK dan FK balik ke Title, pakai ON DELETE CASCADE. Alasan milih ini dibanding gabungin semua jadi satu tabel besar: kalau digabung, bakal banyak banget kolom yang isinya NULL (misal County jelas nggak butuh kolom special_requirements yang cuma relevan buat Kingdom/Empire). Jadi mending dipisah per tabel biar tiap tier cuma nyimpen atribut yang memang relevan buat dia.
 
-#### 2. Pemodelan Data Temporal & Dinamis: *Temporal Bridge Table (Snapshot Pattern)*
-- **Pola:** *Temporal Bridge Table / Point-in-Time Snapshot Pattern*.
-- **Implementasi:**
-  - Tabel `Title_Snapshot` dengan Composite Primary Key `(title_id, year)`.
-  - Memiliki *Self-referencing Foreign Key* `parent_title_id` yang merujuk ke `Title(title_id)`.
-  - Memiliki Foreign Key ke entitas master pendukung: `culture_id` (`Culture`), `religion_id` (`Religion`), dan `ruler_id` (`Character`).
-- **Rasionalitas Design:** Dalam CK3, struktur hierarki *de jure* (misal: County tertentu milik Duchy mana) dan atribut statistik wilayah (*development*, penguasa, agama, budaya) **sangat dinamis dan berubah-ubah berdasarkan tahun awal permainan (*start date*: 867, 1066, 1178)**. Pemisahan entitas statis (`Title`) dari state temporalnya (`Title_Snapshot`) meminimalkan duplikasi data entitas utama dan memodelkan relasi dinamis secara efisien.
+#### 2. Data yang berubah per-tahun
+di CK3, hierarki de jure itu nggak tetap. County yang tahun 867 masuk Duchy A, bisa aja di tahun 1178 udah pindah ke Duchy B. Development, budaya, agama wilayah juga berubah tergantung start date yang dipilih (867/1066/1178). Kalau info ini ditaruh langsung sebagai kolom statis di Title, itu bakal salah secara konsep. Oleh sebab itu diambil keputusan untuk dipisahkan jadi tabel Title_Snapshot sendiri, dengan PK gabungan (title_id, year). Di tabel ini ada juga parent_title_id yang nunjuk balik ke Title (self-referencing FK) buat gambarin parent-nya di tahun itu, plus FK ke Culture, Religion, dan Character (buat ruler). Dengan cara ini, entitas title-nya sendiri tetap satu (nggak duplikat), tapi state-nya per tahun bisa disimpan terpisah.
 
-#### 3. Pemetaan Relasi Banyak-ke-Banyak (Many-to-Many / M:N): *Junction / Bridge Tables*
-- **Pola:** Tabel Penghubung (*Bridge / Junction Table*).
-- **Implementasi:**
-  - `Title_Building`: Menghubungkan `Title` dengan `Special_Building` (M:N) dengan Primary Key gabungan `(title_id, building_id)`.
-  - `Hegemony_Empire`: Menghubungkan `Hegemony` dengan `Empire` (M:N, karena 1 Hegemony menaungi banyak Empire). Primary Key gabungan `(hegemony_id, empire_id)`.
-  - `Alt_Name_Culture`: Menghubungkan nama alternatif wilayah dengan `Culture` (M:N). Menghubungkan Composite PK `(title_id, alt_name)` dari tabel `Alt_Name` dengan `culture_id`.
-  - `War_Contests`: Menghubungkan entitas `War` dengan state snapshot wilayah (`Title_Snapshot`). Menghubungkan `war_id` dengan Composite FK `(title_id, year)`.
+#### 3. Relasi Many-to-Many
+Ada beberapa hubungan yang sifatnya M:N, jadi butuh tabel penghubung:
 
-#### 4. Entitas Lemah (Weak Entities) & Atribut Multi-nilai (*Multivalued Attributes*)
-- **Implementasi:**
-  - `Barony`: Dimodelkan sebagai weak entity di bawah `County` (PK `barony_id`, FK `county_id` -> `County(title_id)`).
-  - `Alt_Name`: Atribut multi-nilai dari `Title` yang tergantung pada tahun aktif tertentu. Dimodelkan sebagai tabel terpisah dengan Composite Primary Key `(title_id, alt_name)`.
+* **Title_Building:** nghubungin Title dengan Special_Building, PK-nya gabungan (title_id, building_id).
+* **Hegemony_Empire:** karena satu Hegemony bisa menaungi lebih dari satu Empire.
+* **Alt_Name_Culture:** nama alternatif wilayah bisa terkait ke lebih dari satu budaya.
+* **War_Contests:** nghubungin War ke state title tertentu di tahun tertentu, jadi FK-nya komposit ke (title_id, year) di Title_Snapshot.
 
-#### 5. Penegakan Aturan Bisnis & Integritas Referensial (*Referential Integrity & Triggers*)
-- **Integritas Referensial:**
-  - `ON DELETE CASCADE` pada relasi subtype dan snapshot agar jika suatu `Title` dihapus, data turunannya otomatis terhapus.
-  - `ON DELETE SET NULL` pada `ruler_id` dan `parent_title_id` agar penghapusan penguasa/parent tidak menghancurkan record snapshot sejarah.
-  - `ON DELETE RESTRICT` pada master data (`Character`, `Culture`, `Religion`) untuk mencegah penghapusan data referensi yang sedang aktif digunakan.
-  - `CHECK Constraint` untuk validasi domain nilai (seperti `year IN (867, 1066, 1178)` dan `transferred IN ('pending', 'yes', 'no')`).
-- **Database Triggers (Stored Procedures PL/pgSQL):**
-  - `check_attacker_defender_different`: Memastikan `attacker_id != defender_id` dalam tabel `War`.
-  - `check_transferred_no_revert`: Mencegah perubahan status perang dari status final (`yes`/`no`) kembali ke `pending`.
-  - `prevent_delete_resolved_war`: Menjaga histori perang agar tidak bisa dihapus apabila perang tersebut sudah selesai (berstatus final).
-  - `recalc_sub_counties`: Otomatis menghitung ulang agregat `sub_counties` pada `Title_Snapshot` parent saat terjadi manipulasi data snapshot child.
+#### 4. Relasi Many-to-One
+Buat relasi yang sifatnya satu ke banyak, bukan M:N atau self-referencing, aku nggak bikin tabel penghubung terpisah. Cukup pindahin PK dari sisi "satu" ke tabel sisi "banyak" sebagai kolom FK biasa. Contohnya County yang di bawah satu Duchy tertentu, atau Special_Building yang dimiliki satu Title, dan sejenisnya — di sini duchy_id (atau id yang relevan) tinggal ditaruh langsung sebagai kolom di tabel anaknya, nggak perlu tabel tambahan. Ini pendekatan standar buat 1:N di relational mapping, karena satu baris di sisi "banyak" cuma butuh nunjuk ke satu baris pasangannya di sisi "satu", jadi FK biasa udah cukup, nggak ada redundansi yang perlu dihindari kayak kasus M:N tadi.
 
+#### 5. Weak entity dan atribut multi-nilai
+Barony itu weak entity di bawah County, dia nggak punya identitas sendiri tanpa county-nya (PK barony_id, FK county_id). Sementara Alt_Name aku model sebagai tabel terpisah karena satu title bisa punya banyak nama alternatif tergantung tahun/budaya siapa yang mengucapkannya. Kadi ini atribut multivalue, PK-nya gabungan (title_id, alt_name).
+
+#### 6. Integritas Data (Constraint)
+Untuk constraint, dipakai kombinasi beberapa jenis ON DELETE: CASCADE buat relasi subtype dan snapshot (kalau title-nya dihapus, turunannya ikut kehapus), SET NULL buat ruler_id/parent_title_id (karena kalau penguasa atau parent-nya dihapus, catatan historisnya tetap harus ada, cuma referensinya jadi kosong), dan RESTRICT buat data master (Character, Culture, Religion) biar nggak sengaja kehapus padahal masih dipakai di tempat lain. Ada juga CHECK buat batasi nilai yang valid, contohnya year cuma boleh 867/1066/1178.
+
+Selain itu ada beberapa trigger yang dibuat: check_attacker_defender_different (mastiin penyerang dan yang diserang di tabel War nggak boleh sama), check_transferred_no_revert (status perang yang udah final nggak bisa balik jadi pending lagi), prevent_delete_resolved_war (perang yang udah selesai nggak boleh dihapus, biar histori tetap ada), dan recalc_sub_counties (otomatis update jumlah sub-county di parent snapshot kalau ada perubahan data di level bawahnya).
 ---
 
 ### Pengujian Skema Database & Integrity Constraints (Step 2 - Data Storing)
@@ -365,7 +348,7 @@ Script `Automated Scheduling/src/scheduler.py` telah berhasil didaftarkan ke **W
 
 ---
 
-### Query Optimization 
+### Query Optimasi 
 
 #### Tujuan & Ringkasan Eksperimen
 Bagian ini bertujuan untuk menganalisis dan mengoptimalkan performa eksekusi query pada database PostgreSQL (`ck3_db`) dengan menggunakan perintah `EXPLAIN ANALYZE`. Pengujian dilakukan terhadap 3 jenis skenario query dengan beban kerja yang beragam (join hierarki multi-level, pencarian substring teks bebas, dan agregasi data agregat).
@@ -375,7 +358,7 @@ Bagian ini bertujuan untuk menganalisis dan mengoptimalkan performa eksekusi que
 | Query | Skenario | Waktu Sebelum (Before) | Metode Scan Sebelum | Waktu Sesudah (After) | Metode Scan Sesudah | Peningkatan (%) |
 |---|---|---|---|---|---|---|
 | **Query 1** | Multi-Level Join (County ke Empire) | 6.022 ms | Seq Scan pada `title_snapshot` | 0.657 ms | Bitmap Index Scan / Index Scan | ~89.1% |
-| **Query 2** | Text Search Substring (`ILIKE '%bryn%'`) | 3.467 ms | Seq Scan pada `alt_name` | 3.467 ms (Default) / Index Valid (`enable_seqscan=off`) | Seq Scan (Planner) / Bitmap Index Scan (Forced) | 0% (Auto) / Validasi Teknis |
+| **Query 2** | Text Search Substring (`ILIKE '%bryn%'`) | 0.764 ms | Seq Scan pada `alt_name` | 0.579 ms (Default) / 5.540 ms (Forced) | Seq Scan (Planner) / Bitmap Index Scan (Forced) | ~24.2% (Default) / Slowdown (Forced) |
 | **Query 3** | Agregasi Budaya & Agama per Kingdom | 29.449 ms | Seq Scan pada `title_snapshot` (2x) | 15.001 ms | Bitmap Index Scan | ~49.1% |
 
 ---
@@ -400,10 +383,10 @@ WHERE ts_kingdom.parent_title_id = 'e_britannia' AND ts_county.year = 1066;
 ```
 
 * **Sebelum Indeks:** PostgreSQL melakukan pembacaan berurutan (*Sequential Scan*) pada seluruh baris tabel `title_snapshot` untuk setiap tahapan join, memakan waktu eksekusi sebesar **6.022 ms**.
-  ![Query 1 Before](Data%20Storing/screenshot/query_optimization/query1_before.png)
+  ![Query 1 Before](Query%20Optimasi/screenshots/query1_before.png)
 
-* **Sesudah Indeks:** Setelah indeks komposit `idx_snapshot_parent_year` diterapkan pada kolom `(parent_title_id, year)`, query planner beralih menggunakan **Bitmap Index Scan** dan **Index Scan**. Waktu eksekusi turun drastis menjadi **0.657 ms** (peningkatan kecepatan sebesar **89.1%**).
-  ![Query 1 After](Data%20Storing/screenshot/query_optimization/query1_after.png)
+* **Sesudah Indeks:** Setelah indeks komposit `idx_snapshot_parent_year` diterapkan pada kolom `(parent_title_id, year)`, query planner menggunakan **Bitmap Index Scan** dan **Index Scan**. Waktu eksekusi turun drastis menjadi **0.657 ms** (peningkatan kecepatan sebesar **89.1%**).
+  ![Query 1 After](Query%20Optimasi/screenshots/query1_after.png)
 
 ---
 
@@ -432,14 +415,14 @@ WHERE alt_name ILIKE '%bryn%';
 SET enable_seqscan = on;
 ```
 
-* **Sebelum Indeks:** PostgreSQL melakukan *Sequential Scan* pada tabel `alt_name` dengan waktu eksekusi **3.467 ms**.
-  ![Query 2 Before](Data%20Storing/screenshot/query_optimization/query2_before.png)
+* **Sebelum Indeks:** PostgreSQL melakukan *Sequential Scan* pada tabel `alt_name` dengan waktu eksekusi **0.764 ms**.
+  ![Query 2 Before](Query%20Optimasi/screenshots/query2_before.png)
 
-* **Sesudah Indeks (Default Optimizer):** Meskipun indeks GIN Trigram `idx_altname_trgm` telah dibuat dan valid secara teknis, *Cost-Based Optimizer* PostgreSQL tetap memilih *Sequential Scan* dengan waktu eksekusi yang sama (**3.467 ms**). Hal ini terjadi karena ukuran tabel `alt_name` relatif kecil (hanya 761 baris), sehingga estimasi biaya pembacaan langsung di memori lebih murah dibanding melakukan overhead pencarian pohon indeks dan re-check baris.
-  ![Query 2 Default Planner](Data%20Storing/screenshot/query_optimization/query2_after_default.png)
+* **Sesudah Indeks (Default Optimizer):** Meskipun indeks GIN Trigram `idx_altname_trgm` telah diterapkan, *Cost-Based Optimizer* PostgreSQL tetap memilih *Sequential Scan* dengan waktu eksekusi yang sama (**0.579 ms**). Hal ini terjadi karena ukuran tabel `alt_name` relatif kecil (hanya 761 baris), sehingga estimasi biaya pembacaan langsung di memori lebih murah dibanding melakukan overhead pencarian pohon indeks dan re-check baris.
+  ![Query 2 Default Planner](Query%20Optimasi/screenshots/query2_after.png)
 
-* **Validasi Teknis Indeks:** Untuk membuktikan bahwa indeks GIN Trigram tersebut valid dan dapat berfungsi, perintah `SET enable_seqscan = off;` dijalankan secara sementara. Hasilnya menunjukkan bahwa query planner berhasil beralih menggunakan **Bitmap Index Scan**, membuktikan bahwa struktur indeks telah dibuat dengan benar secara teknis.
-  ![Query 2 Forced Index](Data%20Storing/screenshot/query_optimization/query2_after_forced.png)
+* **Sesudah Indeks (Metode Bitmap Index Scan (Forced)):** Untuk membuktikan bahwa indeks GIN Trigram tersebut valid dan dapat berfungsi, perintah `SET enable_seqscan = off;` dijalankan secara sementara. Hasilnya menunjukkan bahwa query planner berhasil beralih menggunakan **Bitmap Index Scan**. Namun query malah menjadi tidak efektif dan semakin lama (**38.701 ms**). Hal ini disebabkan karena ukuran tabel alt_name yang relatif kecil menyebabkan overhead pemacaan indekes GIN Trogram dan pencocokan ulang trigram (Recheck Cond) lebih besar daripada pemindaian langsung seluruh tabel di memori. Apabila tabel alt_name menjadi jauh lebih besar query akan menjadi lebih efektif.
+  ![Query 2 Forced Index](Query%20Optimasi/screenshots/query2_after_seqoff.png)
 
 ---
 
@@ -469,29 +452,75 @@ LIMIT 10;
 ```
 
 * **Sebelum Indeks:** PostgreSQL melakukan dua kali *Sequential Scan* pada tabel `title_snapshot` (untuk alias `ts_county` dan `ts_duchy`), di mana masing-masing scan membaca 13.941 baris dan membuang 9.294 baris yang tidak sesuai filter tahun. Waktu eksekusi sebesar **29.449 ms**.
-  ![Query 3 Before](Data%20Storing/screenshot/query_optimization/query3_before.png)
+  ![Query 3 Before](Query%20Optimasi/screenshots/query3_before.png)
 
 * **Sesudah Indeks:** Setelah indeks `idx_snapshot_year` ditambahkan pada kolom `year`, pembacaan berurut beralih menjadi **Bitmap Index Scan**. Waktu eksekusi berhasil dipangkas menjadi **15.001 ms** (peningkatan kecepatan sebesar **49.1%**).
-  ![Query 3 After](Data%20Storing/screenshot/query_optimization/query3_after.png)
+  ![Query 3 After](Query%20Optimasi/screenshots/query3_after.png)
 
 ---
+### Pernyataan Penggunaan AI
 
-#### Insight Konseptual yang Dipelajari
+Sesuain dengan ketentuan seleksi, bagian ini menjelaskan penggunaan AI selama pengerjaan proyek ini.
 
-1. **Selektivitas Indeks Menentukan Tingkat Peningkatan Performa:**
-   Indeks memberikan peningkatan performa paling tinggi pada kondisi filter yang sangat selektif. Pada Query 1, filter `parent_title_id = 'e_britannia'` memangkas pencarian dari puluhan ribu baris menjadi hanya beberapa baris spesifik, sehingga menghasilkan improvement hingga 89.1%. Sebaliknya pada Query 3, filter `year = 1178` kurang selektif karena hanya menyaring sepertiga dari total data (~4.600 baris), sehingga improvement yang didapat lebih moderat (49.1%).
+#### 1. Bagian yang Dibantu Oleh AI
+* **Penyusunan Jadwal & Guidebook:** Membantu menyusun rancangan target harian agar proses belajar dan pengerjaan proyek terstruktur dan dapat beriringan dengan aktivitas lainnya.
 
-2. **Cost-Based Optimizer vs Pembuatan Indeks:**
-   Adanya indeks pada database tidak menjamin indeks tersebut pasti digunakan oleh query planner. PostgreSQL menggunakan *Cost-Based Optimizer* yang memperhitungkan ukuran data di disk. Pada Query 2 (tabel kecil berisi 761 baris), planner secara bijak tetap memilih *Sequential Scan* karena biaya I/O pembacaan langsung lebih kecil dibanding pencarian indeks B-Tree/GIN.
+* **Pencarian Referensi & Penjelasan Konsep:** Membantu mencarikan referensi belajar tambahan saat menjelaskan konsep-konsep teknis basis data yang kurang dipahami (seperti bypass Cloudflare pakai `cloudscraper`, implementasi trigger di pgSQL, dan pembacaan metrik `EXPLAIN ANALYZE`)
 
-3. **Kesesuaian Tipe Indeks dengan Operasi Filter:**
-   Pencarian teks bebas dengan wildcard di awal dan akhir (`ILIKE '%keyword%'`) tidak dapat memanfaatkan indeks B-Tree standar. Diperlukan indeks ber-tipe GIN Trigram (`pg_trgm`) untuk mendukung pencarian pattern matching substring secara teknis pada PostgreSQL.
+* **Debugging Kode & Bug Fixing:** Membantu menganalisis log error dan mencari solusi perbaikan (*bug fixing*) saat terjadi kendala teknis pada script Python scraper/cleaner dan query SQL.
+* **Penyusunan Struktur README:** Membantu merapikan struktur penulisan markdown, memperbaiki sintaks tautan gambar yang tidak konsisten, dan memformat README agar terlihat rapi dan profesional.
+* **Saran & Opini Desain:** Meminta umpan balik (*feedback*), saran keefektifan, dan validasi terhadap rancangan skema ERD, Diagram Relasional, serta query optimasi agar model data yang dihasilkan optimal.
+* **Registrasi OS Scheduler:** Membantu menjelaskan dan memberikan panduan cara mendaftarkan skrip penjadwal otomatis (scheduling) ke sistem operasi (OS) menggunakan Windows Task Scheduler.
+* **Ekspor & Dump Database/Warehouse:** Membantu mengidentifikasi letak utilitas PostgreSQL (`pg_dump.exe`) pada lokal Windows (di runtime pgAdmin 4) dan menyusun perintah baris CLI yang tepat untuk mengekspor database secara mandiri menjadi berkas `.sql` (`ck3_relational_export.sql` & `ck3_dw_export.sql`).
+
+#### 2. Bagian yang Tetap Dikerjakan Sendiri
+* **Coding & Implementasi ETL:** Menulis dan mengimplementasikan seluruh script Python untuk scraping, data cleaning, dan data storing.
+* **Perancangan skema Database:** Merancang struktur ERD dan translasinya ke Diagram Relasional dari awal dengan pemahaman yang dimiliki terkait game Crusaider Kings III (hierarki gelar de jure)
+* **Eksekusi Pengujian & Screenshot:** Menjalankan database secara manual, mengeksekusi trigeer, melalukan pengetesan query optimisasi, serta mengambil tangkapa screenshot.
+* **Penulisan Konten README:** Menulis konten analisis, deskripsi data, dan kesimpulan dari optimisasi query berdasarkan hasil running di database lokal.
+
+#### 3. Refleksi Penggunaan AI
+Penggunaan AI dalam proyek ini menurut saya sudah sangat baik sebagai asisten belajar (tutor) yang mempercepat pemahaman dari dokumentasi sehingga waktu dapat dipadatkan untuk pembuatan script, database, dan query serta analisis hasilnya. Meskipun AI sangat membantu dalam meberikan saran desain dan debugging, keputusan akhir, validasi kebenaran logika database, dan pemahaman alur data tetap sepenuhnya berada di tangan praktikan guna memastikan seluruh sistem berjalan sesuai dengan aturan bisnis (business rules) game CK3.
 
 ---
-
 ### Referensi & Pustaka
+
+#### Sumber Data & Pustaka Utama
 - **Sumber Data:** [CK3 Wiki - Crusader Kings III Paradox Wikis](https://ck3.paradoxwikis.com/)
 - **Pustaka Python:**
-  - `cloudscraper`: Untuk menembus sistem proteksi Cloudflare pada CK3 Wiki secara aman.
+  - `cloudscraper`: Pustaka penembus proteksi Cloudflare anti-bot challenge pada CK3 Wiki secara aman.
   - `beautifulsoup4` (`bs4`): Pustaka parsing DOM HTML.
-  - `re` & `json`: Pustaka manipulasi regex dan ekspor format JSON.
+  - `psycopg2`: Pustaka adapter/connector basis data PostgreSQL untuk Python.
+
+#### Referensi Pembelajaran & Tutorial
+##### A. Web Scraping (Python + Requests + BeautifulSoup)
+- [BeautifulSoup Tutorial: Web Scraping with Python (2026)](https://www.youtube.com/watch?v=ztxIxbRyPJI) — paling baru, pas buat versi library terkini
+- [Beautiful Soup 4 Tutorial #1 — Web Scraping With Python](https://www.youtube.com/watch?v=gRLHr664tXA) — seri dasar, cocok kalau baru pertama kali
+- [Web Scraping with Python — Beautiful Soup Crash Course](https://www.youtube.com/watch?v=XVv6mJpFOb0) — versi ringkas kalau kamu mau cepat
+- [Real Python — Beautiful Soup: Build a Web Scraper With Python](https://realpython.com/beautiful-soup-web-scraper-python/) — tulisan lengkap, bagus buat referensi sambil coding (bukan cuma nonton)
+- Dokumentasi resmi BeautifulSoup: https://www.crummy.com/software/BeautifulSoup/bs4/doc/
+- Dokumentasi resmi requests: https://requests.readthedocs.io/
+
+##### A.1 Cloudflare Bypass (cloudscraper)
+- Dokumentasi resmi (PyPI): https://pypi.org/project/cloudscraper/
+- Repo GitHub: https://github.com/VeNoMouS/cloudscraper
+- Panduan step-by-step: https://github.com/IPRoyal/use-cloudscraper/
+
+##### B. Entity Relationship Diagram (ERD)
+- [ERD Tutorial — Part 1 (dasar)](https://www.youtube.com/watch?v=xsg9BDiwiJE)
+- [ERD Tutorial — Part 2: Primary keys, foreign keys, bridge tables](https://www.youtube.com/watch?v=hktyW5Lp0Vo) — wajib ditonton, soalnya kamu butuh paham "bridge table" buat desain snapshot temporal
+- [Entity Relationship Diagrams Explained: ERD Basics for Beginners](https://www.youtube.com/watch?v=fUUJyFR0gXo)
+- [GeeksforGeeks — Introduction of ER Model](https://www.geeksforgeeks.org/dbms/introduction-of-er-model/)
+- Tool desain: https://dbdiagram.io dan https://app.diagrams.net
+
+##### C. PostgreSQL / SQL
+- [PostgreSQL Tutorial for Beginners](https://www.youtube.com/watch?v=qw5yEgAM9nM) — tutorial lengkap dari dasar
+- [Learn PostgreSQL Tutorial - Full Course for Beginners](https://www.youtube.com/watch?v=SpfIwlAYaKk) — belajar DDL, DML, constraint, dan triggers
+- Dokumentasi Resmi PostgreSQL: https://www.postgresql.org/docs/
+- Dokumentasi Resmi Psycopg2: https://www.psycopg.org/docs/
+
+##### D. Data Warehouse / Star Schema (Bonus 1)
+- [Datawarehousing Concepts Basics (Fact and Dimension Table)](https://www.youtube.com/watch?v=Q7KHW2oCOUI)
+- [What is STAR schema | Star vs Snowflake Schema](https://www.youtube.com/watch?v=hQvCOBv_-LE)
+- [Star schema — Wikipedia](https://en.wikipedia.org/wiki/Star_schema) — ringkas dan cukup buat pegangan konsep
+- [Dimensional Modeling — Facts, Dimensions, and Star Schema (Data Vidhya)](https://datavidhya.com/learn/data-modeling-and-warehouse/dimensional-modeling/dimensional-modeling-intro/) — penjelasan step-by-step yang gampang diikuti

@@ -1,9 +1,9 @@
+-- Creating Table like in the relational diagram
 CREATE TABLE Title (
     title_id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
     tier VARCHAR(50) NOT NULL
 );
-
 
 CREATE TABLE County (
     title_id VARCHAR(50) PRIMARY KEY,
@@ -147,7 +147,6 @@ CREATE TABLE War_Contests (
 );
 
 /* Triggers */
-
 -- 1) BEFORE INSERT — attacker dan defender tidak boleh orang yang sama
 CREATE OR REPLACE FUNCTION check_attacker_defender_different()
 RETURNS TRIGGER AS $$\data
@@ -207,7 +206,7 @@ EXECUTE FUNCTION prevent_delete_resolved_war();
 --    AMAN di-trigger karena Title_Snapshot data-nya lengkap (bukan sparse
 --    kayak Barony). TIDAK dibuatkan trigger serupa untuk sub_baronies atau
 --    baronies_count di County/Duchy, karena keduanya bergantung ke tabel
---    Barony yang sengaja sparse (cuma dummy rows) — nilai asli untuk kolom
+--    Barony yang sengaja sparse (cuma dummy rows). nilai asli untuk kolom
 --    itu diisi langsung dari hasil scraping lewat script import, bukan
 --    dihitung ulang otomatis oleh trigger.
 CREATE OR REPLACE FUNCTION recalc_sub_counties()
